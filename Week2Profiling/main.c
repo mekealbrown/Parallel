@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <omp.h>
 
 
 #define TRIALS 5
@@ -9,8 +10,8 @@
 // Serial matrix multiplication
 double matrix_multiply_serial(double** A, double** B, double** C, int n)
 {
-	clock_t start, end;
-	start = clock();
+	//clock_t start, end;
+	//start = clock();
 
   for(int i = 0; i < n; i++){
     for(int j = 0; j < n; j++){
@@ -20,24 +21,25 @@ double matrix_multiply_serial(double** A, double** B, double** C, int n)
       }
     }
   }
-	end = clock();
-	return ((double)(end - start)) / CLOCKS_PER_SEC;
+	//end = clock();
+	return 1.0; //((double)(end - start)) / CLOCKS_PER_SEC;
 }
 
 // vectorized, scalar loop unrolled, B matrix column extraction
 // Optimized vectorized matrix multiplication
+//
+/*TODO: THIS IS ACTUALLY A PRETTY HORRIBLE ATTEMPT AT OPTIMIZING
+	-MATRIX B COLUMN EXTRACTION IS UNECESSARY OVERHEAD(look into why benefits dont outweigh costs)
+	-IS THIS JUST A BAD CANDIDATE FOR THREADING?
+*/
 double matrix_multiply_vectorized(double** A, double** B, double** C, int n)
 {
-  clock_t start, end;
-  start = clock();
-    
+
   // Align memory to 32-byte boundary for better vectorization
   double* b_col = (double*)aligned_alloc(32, n * sizeof(double));
     
-  // Pre-calculate vector iteration limit
   int vec_limit = n - (n % 4);
     
-  // Main computation loop with optimizations
   for(int i = 0; i < n; i++){
     for(int j = 0; j < n; j++){
       // Prefetch next row of A
@@ -78,8 +80,8 @@ double matrix_multiply_vectorized(double** A, double** B, double** C, int n)
   }
     
   free(b_col);
-  end = clock();
-  return ((double)(end - start)) / CLOCKS_PER_SEC;
+  //end = clock();
+  return 1.0; //((double)(end - start)) / CLOCKS_PER_SEC;
 }
 
 double** allocate_matrix(int n)
@@ -93,6 +95,7 @@ double** allocate_matrix(int n)
 
 void initialize_matrix(double** matrix, int n)
 {
+
   for(int i = 0; i < n; i++){
     for(int j = 0; j < n; j++){
       matrix[i][j] = (double)rand() / RAND_MAX;
@@ -101,6 +104,7 @@ void initialize_matrix(double** matrix, int n)
 }
 void free_matrix(double** matrix, int n)
 {
+
   for(int i = 0; i < n; i++){
     free(matrix[i]);
   }
@@ -117,6 +121,7 @@ void calculate_speedup(int size)
 	double vectorized_times[TRIALS];
     
   // Run multiple trials
+
   for(int t = 0; t < TRIALS; t++){
     initialize_matrix(A, size);
     initialize_matrix(B, size);
@@ -134,34 +139,26 @@ void calculate_speedup(int size)
 	avg_1 /= TRIALS;
 	avg_2 /= TRIALS;
 
-	printf("--------------------------------------------------------");
-	printf("\nMatrix Size: %d x %d\n", size, size);
-	printf("Average General Algorithm Time: %.4f seconds\n", avg_1);
-	printf("Average Fully Optimized Algorithm Time: %.4f seconds\n", avg_2);
-	printf("Speedup: %.2fx\n", avg_1/avg_2);
-	printf("Efficiency: %.2f%%\n", (avg_1/avg_2) * 100);
-	printf("--------------------------------------------------------\n");
+	//printf("--------------------------------------------------------");
+	//printf("\nMatrix Size: %d x %d\n", size, size);
+	//printf("Average General Algorithm Time: %.4f seconds\n", avg_1);
+	//printf("Average Fully Optimized Algorithm Time: %.4f seconds\n", avg_2);
+	//printf("Speedup: %.2fx\n", avg_1/avg_2);
+	//printf("Efficiency: %.2f%%\n", (avg_1/avg_2) * 100);
+	//printf("--------------------------------------------------------\n");
 
   free_matrix(A, size);
   free_matrix(B, size);
   free_matrix(C, size);
 }
 
-int main() {
+int main(int argc, char **argv) {
   // Test with different matrix sizes
-  int sizes[] = {256, 512, 1024};
-	int sizes2[] = {100, 356, 822};
+  int sizes[] = {256, 512, 1024, 2048, 4096, 8192};
 
-	printf("Power of two sized matrices...\n\n");
-  for(int i = 0; i < 3; i++){
+  for(int i = 0; i < 6; i++){
     printf("Run %d...\n", i+1);
     calculate_speedup(sizes[i]);
-  }
-
-	printf("Random sized matrices...\n\n");
-  for(int i = 0; i < 3; i++){
-    printf("Run %d...\n", i+1);
-    calculate_speedup(sizes2[i]);
   }
   return 0;
 }

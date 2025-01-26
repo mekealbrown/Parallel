@@ -10,7 +10,7 @@ PROFILING_SCRIPT = $(FLAMEGRAPH_DIR)/stackcollapse-perf.pl
 FLAMEGRAPH_SCRIPT = $(FLAMEGRAPH_DIR)/flamegraph.pl
 
 # Debugging and profiling enabled
-CFLAGS = -g -pg -mavx2 -mfma
+CFLAGS = -g -pg -mavx2 -mfma -O3 -march=native
 
 all: $(PROGRAM) $(LEARN)
 
