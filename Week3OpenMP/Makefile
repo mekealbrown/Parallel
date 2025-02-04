@@ -1,8 +1,8 @@
 PROGRAM = main
 SRC = main.c
 
-LEARN = learn
-L_SRC = learnvectorization.c
+LOOPS = loops
+L_SRC = loops.c
 
 FLAMEGRAPH_DIR = ../Flamegraph
 PERF_OUTPUT = perf.data
@@ -10,15 +10,16 @@ PROFILING_SCRIPT = $(FLAMEGRAPH_DIR)/stackcollapse-perf.pl
 FLAMEGRAPH_SCRIPT = $(FLAMEGRAPH_DIR)/flamegraph.pl
 
 # Debugging and profiling enabled
-CFLAGS = -g -pg -mavx2 -mfma -O3 -march=native -fopenmp
+CFLAGS = -g -pg -mavx2 -mfma -O2 -march=native -fopenmp
 
 all: $(PROGRAM) $(LEARN)
 
 $(PROGRAM): $(SRC)
 	@$(CC) $(CFLAGS) -o $(PROGRAM) $(SRC)
 
-$(LEARN): $(L_SRC)
-	@$(CC) $(CFLAGS) -o $(LEARN) $(L_SRC)
+$(LOOPS): $(L_SRC)
+	@$(CC) $(CFLAGS) -o $(LOOPS) $(L_SRC)
+
 
 run: $(PROGRAM)
 	@echo -e "\033[1;32mRunning the program with perf profiling...\033[0m"
@@ -45,7 +46,7 @@ profile: run
 clean:
 	@echo -e "\033[1;31mCleaning up generated files...\033[0m"
 
-	@rm -f $(PROGRAM) $(PERF_OUTPUT) out.perf flamegraph.svg gmon.out report.txt learn *.o callgrind*
+	@rm -f $(PROGRAM) $(PERF_OUTPUT) out.perf flamegraph.svg gmon.out report.txt learn *.o callgrind* loops
 
 	@echo -e "\033[1;31mCleaned up generated files.\033[0m"
 

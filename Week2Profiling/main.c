@@ -31,6 +31,7 @@ double matrix_multiply_serial(double** A, double** B, double** C, int n)
 /*TODO: THIS IS ACTUALLY A PRETTY HORRIBLE ATTEMPT AT OPTIMIZING
 	-MATRIX B COLUMN EXTRACTION IS UNECESSARY OVERHEAD(look into why benefits dont outweigh costs)
 	-IS THIS JUST A BAD CANDIDATE FOR THREADING?
+	-THREADING THIS INTRODUCES MEMORY ISSUES
 */
 double matrix_multiply_vectorized(double** A, double** B, double** C, int n)
 {
