@@ -27,10 +27,8 @@ double matrix_multiply_serial(double** A, double** B, double** C, int n)
 double matrix_multiply_vectorized(double** A, double** B, double** C, int n)
 {
   int vec_limit = n - (n % 4);
-  double local_sum = 0.0;
 
-  // Parallelize only outer loop, reduction gives each thread its own copy of local_sum
-  #pragma omp parallel for reduction(+:local_sum)
+  #pragma omp parallel for
   for(int i = 0; i < n; i++){
     for(int j = 0; j < n; j++){
       double local_sum = 0.0;
@@ -66,21 +64,22 @@ double matrix_multiply_vectorized(double** A, double** B, double** C, int n)
 double** allocate_matrix(int n)
 {
   double** matrix;
-  size_t alignment = 32; // Align to 32 bytes (for AVX2 - 256bits width)
-	
-  // memory for the row pointers with proper alignment
+  size_t alignment = 32;
+  
+  // First allocation
   if(posix_memalign((void**)&matrix, alignment, n * sizeof(double*)) != 0){
-    printf("Memory allocation failed\n");
     return NULL;
   }
-
-  // memory for the matrix data (the actual elements)
-  if(posix_memalign((void**)&matrix[0], alignment, n * n * sizeof(double)) != 0){
-    printf("Memory allocation failed for matrix data\n");
-    free(matrix);
+  
+  // Second allocation
+  void* data;
+  if(posix_memalign(&data, alignment, n * n * sizeof(double)) != 0){
+    free(matrix);  // Clean up first allocation
     return NULL;
   }
-
+  matrix[0] = (double*)data;
+  
+  // Set up row pointers
   for(int i = 1; i < n; i++){
     matrix[i] = matrix[0] + i * n;
   }
@@ -89,8 +88,10 @@ double** allocate_matrix(int n)
 
 void free_matrix(double** matrix)
 {
-  free(matrix[0]);
-  free(matrix);
+  if(matrix){
+    free(matrix[0]);  // Free the data array
+    free(matrix);     // Free the pointer array
+  }
 }
 
 void initialize_matrix(double** matrix, int n)
@@ -106,10 +107,19 @@ void initialize_matrix(double** matrix, int n)
 void benchmark_matrix_multiply(int size)
 {
   // Allocate matrices
-  double** A = allocate_matrix(size);
+	double** A = allocate_matrix(size);
   double** B = allocate_matrix(size);
   double** C_serial = allocate_matrix(size);
   double** C_vectorized = allocate_matrix(size);
+  
+  if(!A || !B || !C_serial || !C_vectorized){
+    free_matrix(A);
+    free_matrix(B);
+    free_matrix(C_serial);
+    free_matrix(C_vectorized);
+    printf("Memory allocation failed\n");
+    return;
+  }
 
   double serial_times[TIMING_RUNS];
   double vectorized_times[TIMING_RUNS];
@@ -218,9 +228,9 @@ void benchmark_matrix_multiply(int size)
 
 int main(int argc, char **argv) {
   // Test with different matrix sizes
-  int sizes[] = {150, 256, 800, 1600};
+  int sizes[] = {150, 256, 400};
 	
-  for(int i = 0; i < 4; i++){
+  for(int i = 0; i < 3; i++){
     printf("Run %d: Matrix Size %d x %d\n", i+1, sizes[i], sizes[i]);
     benchmark_matrix_multiply(sizes[i]);
     printf("\n");
