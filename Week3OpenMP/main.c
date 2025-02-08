@@ -126,7 +126,6 @@ void benchmark_matrix_multiply(int size)
   
   if(!A || !B || !C_serial || !C_vectorized){
     fprintf(stderr, "Memory allocation failed for matrices\n");
-    // Proper cleanup with size parameter
     free_matrix(A, size);
     free_matrix(B, size);
     free_matrix(C_serial, size);
