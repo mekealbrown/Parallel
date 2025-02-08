@@ -16,23 +16,14 @@ void free_matrix(double** matrix, int n);
 void initialize_matrix(double** matrix, int n);
 void benchmark_matrix_multiply(int size);
 
-void print_matrix(double** matrix, int n) {
-  for (int i = 0; i < n; i++) {
-    for (int j = 0; j < n; j++) {
-      printf("%.2f ", matrix[i][j]);
-    }
-    printf("\n");
-  }
-  printf("\n");
-}
 
 
-// Serial matrix multiplication
-double matrix_multiply_serial(double** A, double** B, double** C, int n) {
-  for(int i = 0; i < n; i++) {
-    for(int j = 0; j < n; j++) {
+double matrix_multiply_serial(double** A, double** B, double** C, int n)
+{
+  for(int i = 0; i < n; i++){
+    for(int j = 0; j < n; j++){
       C[i][j] = 0.0;
-      for(int k = 0; k < n; k++) {
+      for(int k = 0; k < n; k++){
         C[i][j] += A[i][k] * B[k][j];
       }
     }
@@ -40,7 +31,8 @@ double matrix_multiply_serial(double** A, double** B, double** C, int n) {
   return 1.0;
 }
 
-void matrix_multiply_vectorized(double** A, double** B, double** C, int n) {
+void matrix_multiply_vectorized(double** A, double** B, double** C, int n)
+{
   int vec_limit = (n / 4) * 4;  // nearest multiple of 4
 
   #pragma omp parallel for schedule(dynamic)
@@ -64,35 +56,36 @@ void matrix_multiply_vectorized(double** A, double** B, double** C, int n) {
   }
 }
 
-double** allocate_matrix(int n) {
+double** allocate_matrix(int n)
+{
   double** matrix = NULL;
   size_t alignment = 32;
   
   size_t padded_n = ((n + 3) / 4) * 4;  // round up to nearest multiple of 4
   
-  if (posix_memalign((void**)&matrix, alignment, n * sizeof(double*)) != 0) {
+  if(posix_memalign((void**)&matrix, alignment, n * sizeof(double*)) != 0){
     fprintf(stderr, "Failed to allocate matrix pointer array\n");
     return NULL;
   }
 
-  for (int i = 0; i < n; i++) {
+  for(int i = 0; i < n; i++){
     matrix[i] = NULL;
   }
 
-  for (int i = 0; i < n; i++) {
-    if (posix_memalign((void**)&matrix[i], alignment, padded_n * sizeof(double)) != 0) {
+  for(int i = 0; i < n; i++){
+    if(posix_memalign((void**)&matrix[i], alignment, padded_n * sizeof(double)) != 0){
       fprintf(stderr, "Failed to allocate matrix row %d\n", i);
       free_matrix(matrix, n);
       return NULL;
     }
 
     // Initialize padded area to zero
-    for (int j = 0; j < padded_n; j++) {
+    for(int j = 0; j < padded_n; j++){
       matrix[i][j] = 0.0;
     }
 
     // Verify alignment
-    if (((uintptr_t)matrix[i]) % alignment != 0) {
+    if(((uintptr_t)matrix[i]) % alignment != 0){
       fprintf(stderr, "Row %d is not properly aligned\n", i);
       free_matrix(matrix, n);
       return NULL;
@@ -102,33 +95,36 @@ double** allocate_matrix(int n) {
   return matrix;
 }
 
-void free_matrix(double** matrix, int n) {
-  if (matrix) {
-    for (int i = 0; i < n; i++) {
+void free_matrix(double** matrix, int n)
+{
+  if(matrix){
+    for(int i = 0; i < n; i++){
       free(matrix[i]);
     }
     free(matrix);
   }
 }
 
-void initialize_matrix(double** matrix, int n) {
-  if (!matrix) return;
+void initialize_matrix(double** matrix, int n)
+{
+  if(!matrix) return;
   
-  for (int i = 0; i < n; i++) {
-    if (!matrix[i]) continue;
-    for (int j = 0; j < n; j++) {
+  for(int i = 0; i < n; i++){
+    if(!matrix[i]) continue;
+    for(int j = 0; j < n; j++){
       matrix[i][j] = (double)rand() / RAND_MAX;
     }
   }
 }
 
-void benchmark_matrix_multiply(int size) {
+void benchmark_matrix_multiply(int size)
+{
   double** A = allocate_matrix(size);
   double** B = allocate_matrix(size);
   double** C_serial = allocate_matrix(size);
   double** C_vectorized = allocate_matrix(size);
   
-  if (!A || !B || !C_serial || !C_vectorized) {
+  if(!A || !B || !C_serial || !C_vectorized){
     fprintf(stderr, "Memory allocation failed for matrices\n");
     // Proper cleanup with size parameter
     free_matrix(A, size);
@@ -140,8 +136,8 @@ void benchmark_matrix_multiply(int size) {
 
   //======================= Warmup Cache With Data ======================================
   volatile int temp;
-  for(int i = 0; i < size; i++) {
-    for(int j = 0; j < size; j++) {
+  for(int i = 0; i < size; i++){
+    for(int j = 0; j < size; j++){
       temp = A[i][j]; // volatile to stop optimization
       temp = B[i][j];
     }
@@ -149,7 +145,7 @@ void benchmark_matrix_multiply(int size) {
 
   //======================= Benchmark Serial Implementation =============================
   double start = omp_get_wtime();
-  for(int run = 0; run < TIMING_RUNS; run++) {
+  for(int run = 0; run < TIMING_RUNS; run++){
     initialize_matrix(A, size);
     initialize_matrix(B, size);
     matrix_multiply_serial(A, B, C_serial, size);
@@ -162,11 +158,11 @@ void benchmark_matrix_multiply(int size) {
   int best_threads_num = 0;
 
   // test different thread counts
-  for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads *= 2) {
+  for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads *= 2){
     omp_set_num_threads(num_threads);
   
     start = omp_get_wtime();
-    for(int run = 0; run < TIMING_RUNS; run++) {
+    for(int run = 0; run < TIMING_RUNS; run++){
       initialize_matrix(A, size);
       initialize_matrix(B, size);
       matrix_multiply_vectorized(A, B, C_vectorized, size);
@@ -175,7 +171,7 @@ void benchmark_matrix_multiply(int size) {
     double vec_avg = (end - start) / TIMING_RUNS;
   
     // find best time and num threads of best time
-    if(best_threads_time > vec_avg) {
+    if(best_threads_time > vec_avg){
       best_threads_time = vec_avg;
       best_threads_num = num_threads;
     }
@@ -196,11 +192,12 @@ void benchmark_matrix_multiply(int size) {
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
   // test with different matrix sizes
   int sizes[] = {1000, 2000, 3000};
   
-  for(int i = 0; i < 3; i++) {
+  for(int i = 0; i < 3; i++){
     printf("Run %d: Matrix Size %d x %d\n", i+1, sizes[i], sizes[i]);
     benchmark_matrix_multiply(sizes[i]);
     printf("\n");
