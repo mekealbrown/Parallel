@@ -216,7 +216,7 @@ void benchmark_matrix_multiply(int size)
 int main(int argc, char **argv)
 {
   // test with different matrix sizes
-  int sizes[] = {1000};
+  int sizes[] = {300};
   
   for(int i = 0; i < 1; i++){
     printf("Run %d: Matrix Size %d x %d\n", i+1, sizes[i], sizes[i]);
