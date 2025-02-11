@@ -15,7 +15,7 @@ void matrix_multiply_vectorized(double** A, double** B, double** C, int n);
 double** allocate_matrix(int n);
 void free_matrix(double** matrix, int n);
 void initialize_matrix(double** matrix, int n);
-void benchmark_matrix_multiply(int size);
+void benchmark_matrix_multiply(int size, FILE *file);
 
 
 
@@ -127,7 +127,7 @@ void initialize_matrix(double** matrix, int n)
   }
 }
 
-void benchmark_matrix_multiply(int size)
+void benchmark_matrix_multiply(int size, FILE *file)
 {
   double** A = allocate_matrix(size);
   double** B = allocate_matrix(size);
@@ -153,8 +153,8 @@ void benchmark_matrix_multiply(int size)
 
   double total_flops = 2.0 * size * size * size;
 
-  printf("\nMatrix Size: %d x %d\n", size, size);
-  printf("Total Operations per multiplication: %.2e\n", total_flops);
+  fprintf(file, "\nMatrix Size: %d x %d\n", size, size);
+  fprintf(file, "Total Operations per multiplication: %.2e\n", total_flops);
   
   //======================= Warmup Cache With Data ======================================
   for(int i = 0; i < WARMUP; i++) {
@@ -175,9 +175,9 @@ void benchmark_matrix_multiply(int size)
   int best_threads_num = 0;
   double best_gflops = 0.0;
 
-  printf("\nThreaded/Vectorized Performance by Thread Count:\n");
-  printf("Threads  |  Time (s)  |  GFLOPS  |  Speedup\n");
-  printf("----------------------------------------\n");
+  fprintf(file, "\nThreaded/Vectorized Performance by Thread Count:\n");
+  fprintf(file, "Threads  |  Time (s)  |  GFLOPS  |  Speedup\n");
+  fprintf(file, "----------------------------------------\n");
 
   for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads += 1) {
     omp_set_num_threads(num_threads);
@@ -192,7 +192,7 @@ void benchmark_matrix_multiply(int size)
     double thread_gflops = (total_flops / thread_time) / 1e9;
     double speedup = serial_time / thread_time;
     
-    printf("%7d  | %9.6f  | %8.2f | %8.2fx\n", 
+    fprintf(file, "%7d  | %9.6f  | %8.2f | %8.2fx\n", 
            num_threads, thread_time, thread_gflops, speedup);
     
     if(thread_time < best_threads_time) {
@@ -202,14 +202,15 @@ void benchmark_matrix_multiply(int size)
     }
   }
 
-  printf("\nPerformance Summary:\n");
-  printf("Serial Implementation:\n");
-  printf(" Time: %.6f s\n", serial_time);
-  printf(" Performance: %.2f GFLOPS\n", serial_gflops);
-  printf("\nBest Vectorized Implementation (%d threads):\n", best_threads_num);
-  printf(" Time: %.6f s\n", best_threads_time);
-  printf(" Performance: %.2f GFLOPS\n", best_gflops);
-  printf(" Speedup: %.2fx\n", serial_time / best_threads_time);
+
+  fprintf(file, "\nPerformance Summary:\n");
+  fprintf(file, "Serial Implementation:\n");
+  fprintf(file, " Time: %.6f s\n", serial_time);
+  fprintf(file, " Performance: %.2f GFLOPS\n", serial_gflops);
+  fprintf(file, "\nBest Vectorized Implementation (%d threads):\n", best_threads_num);
+  fprintf(file, " Time: %.6f s\n", best_threads_time);
+  fprintf(file, " Performance: %.2f GFLOPS\n", best_gflops);
+  fprintf(file, " Speedup: %.2fx\n", serial_time / best_threads_time);
 
 	free_matrix(A, size);
 	free_matrix(B, size);
@@ -220,14 +221,21 @@ void benchmark_matrix_multiply(int size)
 
 int main(int argc, char **argv)
 {
+	FILE *file = fopen("results.txt", "w");
+
   // test with different matrix sizes
-  int sizes[] = {1000};
+  int sizes[] = {10, 50, 100, 200, 500, 1000};
   
-  for(int i = 0; i < 1; i++){
-    printf("Run %d: Matrix Size %d x %d\n", i+1, sizes[i], sizes[i]);
-    benchmark_matrix_multiply(sizes[i]);
-    printf("\n");
+	printf("Running: "); fflush(stdout);
+  for(int i = 0; i < 6; i++){
+    fprintf(file, "Run %d: Matrix Size %d x %d\n", i+1, sizes[i], sizes[i]);
+    benchmark_matrix_multiply(sizes[i], file);
+    fprintf(file, "\n");
+		printf("."); fflush(stdout);
   }
+	printf("\nDone\n");
+
+	fclose(file);
 
   return 0;
 }
