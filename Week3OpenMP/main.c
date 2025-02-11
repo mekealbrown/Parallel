@@ -7,7 +7,7 @@
 #include <omp.h>
 
 #define TIMING_RUNS 100
-#define MAX_THREADS 16
+#define MAX_THREADS 12
 #define WARMUP 5
 
 double matrix_multiply_serial(double** A, double** B, double** C, int n);
@@ -179,7 +179,7 @@ void benchmark_matrix_multiply(int size)
   printf("Threads  |  Time (s)  |  GFLOPS  |  Speedup\n");
   printf("----------------------------------------\n");
 
-  for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads *= 2) {
+  for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads += 1) {
     omp_set_num_threads(num_threads);
     
     start = omp_get_wtime();
@@ -210,13 +210,18 @@ void benchmark_matrix_multiply(int size)
   printf(" Time: %.6f s\n", best_threads_time);
   printf(" Performance: %.2f GFLOPS\n", best_gflops);
   printf(" Speedup: %.2fx\n", serial_time / best_threads_time);
+
+	free_matrix(A, size);
+	free_matrix(B, size);
+	free_matrix(C_serial, size);
+	free_matrix(C_vectorized, size);
 }
 
 
 int main(int argc, char **argv)
 {
   // test with different matrix sizes
-  int sizes[] = {300};
+  int sizes[] = {1000};
   
   for(int i = 0; i < 1; i++){
     printf("Run %d: Matrix Size %d x %d\n", i+1, sizes[i], sizes[i]);
