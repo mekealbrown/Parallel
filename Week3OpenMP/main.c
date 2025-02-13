@@ -10,7 +10,7 @@
 #define MAX_THREADS 12
 #define WARMUP 5
 
-double matrix_multiply_serial(double** A, double** B, double** C, int n);
+void matrix_multiply_serial(double** A, double** B, double** C, int n);
 void matrix_multiply_vectorized(double** A, double** B, double** C, int n);
 double** allocate_matrix(int n);
 void free_matrix(double** matrix, int n);
@@ -19,39 +19,17 @@ void benchmark_matrix_multiply(int size, FILE *file);
 
 
 
-double matrix_multiply_serial(double** A, double** B, double** C, int n)
+void matrix_multiply_serial(double** A, double** B, double** C, int n)
 {
+	int vec_limit = (n / 4) * 4;
+
+
   for(int i = 0; i < n; i++){
     for(int j = 0; j < n; j++){
       C[i][j] = 0.0;
-      for(int k = 0; k < n; k++){
-        C[i][j] += A[i][k] * B[k][j];
-      }
-    }
-  }
-  return 1.0;
-}
-
-void matrix_multiply_vectorized(double** A, double** B, double** C, int n)
-{
-  int vec_limit = (n / 4) * 4;  // nearest multiple of 4
-
-	double** B_trans = allocate_matrix(n);
-  #pragma omp parallel for collapse(2)
-  for(int i = 0; i < n; i++) {
-    for(int j = 0; j < n; j++) {
-      B_trans[j][i] = B[i][j];
-    }
-  }
-
-  #pragma omp parallel for schedule(dynamic)
-  for(int i = 0; i < n; i++) {
-    for(int j = 0; j < n; j++) {
-      C[i][j] = 0.0;
-      
       for(int k = 0; k < vec_limit; k += 4) {
     		__m256d a = _mm256_load_pd(&A[i][k]);
-    		__m256d b = _mm256_load_pd(&B_trans[j][k]); // row major
+    		__m256d b = _mm256_load_pd(&B[j][k]); // row major
     
     		__m256d c = _mm256_fmadd_pd(a, b, _mm256_setzero_pd());
     
@@ -63,7 +41,31 @@ void matrix_multiply_vectorized(double** A, double** B, double** C, int n)
       }
     }
   }
-	free_matrix(B_trans, n);
+}
+
+void matrix_multiply_vectorized(double** A, double** B, double** C, int n)
+{
+  int vec_limit = (n / 4) * 4;  // nearest multiple of 4
+
+  #pragma omp parallel for schedule(dynamic)
+  for(int i = 0; i < n; i++) {
+    for(int j = 0; j < n; j++) {
+      C[i][j] = 0.0;
+      
+      for(int k = 0; k < vec_limit; k += 4) {
+    		__m256d a = _mm256_load_pd(&A[i][k]);
+    		__m256d b = _mm256_load_pd(&B[j][k]); // row major
+    
+    		__m256d c = _mm256_fmadd_pd(a, b, _mm256_setzero_pd());
+    
+    		C[i][j] += c[0] + c[1] + c[2] + c[3];
+			}
+
+      for(int k = vec_limit; k < n; k++) {
+        C[i][j] += A[i][k] * B[k][j];
+      }
+    }
+  }
 }
 
 double** allocate_matrix(int n)
@@ -155,11 +157,7 @@ void benchmark_matrix_multiply(int size, FILE *file)
 
   fprintf(file, "\nMatrix Size: %d x %d\n", size, size);
   fprintf(file, "Total Operations per multiplication: %.2e\n", total_flops);
-  
-  //======================= Warmup Cache With Data ======================================
-  for(int i = 0; i < WARMUP; i++) {
-    matrix_multiply_serial(A, B, C_serial, size);
-  }
+
 
   //======================= Benchmark Serial Implementation =============================
   double start = omp_get_wtime();
@@ -179,12 +177,20 @@ void benchmark_matrix_multiply(int size, FILE *file)
   fprintf(file, "Threads  |  Time (s)  |  GFLOPS  |  Speedup\n");
   fprintf(file, "----------------------------------------\n");
 
+	double** B_trans = allocate_matrix(size);
+  #pragma omp parallel for collapse(2)
+  for(int i = 0; i < size; i++) {
+    for(int j = 0; j < size; j++) {
+      B_trans[j][i] = B[i][j];
+    }
+  }
+
   for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads += 1) {
     omp_set_num_threads(num_threads);
     
     start = omp_get_wtime();
     for(int run = 0; run < TIMING_RUNS; run++) {
-      matrix_multiply_vectorized(A, B, C_vectorized, size);
+      matrix_multiply_vectorized(A, B_trans, C_vectorized, size);
     }
     end = omp_get_wtime();
     
@@ -214,6 +220,7 @@ void benchmark_matrix_multiply(int size, FILE *file)
 
 	free_matrix(A, size);
 	free_matrix(B, size);
+	free_matrix(B_trans, size);
 	free_matrix(C_serial, size);
 	free_matrix(C_vectorized, size);
 }
