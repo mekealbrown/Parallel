@@ -148,9 +148,17 @@ void benchmark_matrix_multiply(int size, FILE *file)
 	initialize_matrix(A, size);
   initialize_matrix(B, size);
 
+	double** B_trans = allocate_matrix(size);
+  #pragma omp parallel for collapse(2)
+  for(int i = 0; i < size; i++) {
+    for(int j = 0; j < size; j++) {
+      B_trans[j][i] = B[i][j];
+    }
+  }
+
   //======================= Warmup Cache With Data ======================================
   for(int i = 0; i < WARMUP; i++){
-		matrix_multiply_serial(A, B, C_serial, size);
+		matrix_multiply_serial(A, B_trans, C_serial, size);
 	}
 
   double total_flops = 2.0 * size * size * size;
@@ -162,7 +170,7 @@ void benchmark_matrix_multiply(int size, FILE *file)
   //======================= Benchmark Serial Implementation =============================
   double start = omp_get_wtime();
   for(int run = 0; run < TIMING_RUNS; run++) {
-    matrix_multiply_serial(A, B, C_serial, size);
+    matrix_multiply_serial(A, B_trans, C_serial, size);
   }
   double end = omp_get_wtime();
   double serial_time = (end - start) / TIMING_RUNS;
@@ -177,13 +185,6 @@ void benchmark_matrix_multiply(int size, FILE *file)
   fprintf(file, "Threads  |  Time (s)  |  GFLOPS  |  Speedup\n");
   fprintf(file, "----------------------------------------\n");
 
-	double** B_trans = allocate_matrix(size);
-  #pragma omp parallel for collapse(2)
-  for(int i = 0; i < size; i++) {
-    for(int j = 0; j < size; j++) {
-      B_trans[j][i] = B[i][j];
-    }
-  }
 
   for(int num_threads = 1; num_threads <= MAX_THREADS; num_threads += 1) {
     omp_set_num_threads(num_threads);
