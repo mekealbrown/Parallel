@@ -34,9 +34,6 @@ unsigned char* create_output_array(Pixel_t** image, int width, int height, int c
       output[idx] = image[i][j].r;
       output[idx + 1] = image[i][j].g;
       output[idx + 2] = image[i][j].b;
-      if (channels == 4) {
-        output[idx + 3] = 255; // Full alpha
-      }
     }
   }
   return output;
@@ -96,7 +93,6 @@ int main(int argc, char** argv) {
     output_image[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
   }
 
-  // Apply blur
   blurImage(input_image, output_image, width, height, 10);
 
   // Convert back to stb format
