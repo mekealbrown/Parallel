@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <smmintrin.h>
+#include <sys/time.h>
 
 // STB Image setup
 #define STB_IMAGE_IMPLEMENTATION
@@ -40,7 +41,7 @@ unsigned char* create_output_array(Pixel_t** image, int width, int height, int c
   return output;
 }
 
-void blurImage(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size) {
+void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size) {
   int radius = kernel_size / 2;
 
   for (int y = 0; y < height; y++) {
@@ -69,14 +70,9 @@ void blurImage(Pixel_t** image, Pixel_t** output, int width, int height, int ker
   }
 }
 
-void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size)
+void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
 {
 	int radius = kernel_size / 2;
-
-	Pixel_t** temp =  (Pixel_t**)malloc(height * sizeof(Pixel_t*));
-	for (int i = 0; i < height; i++) {
-    temp[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
-	}
 
 	for(int y = 0; y < height; y++){
 		for(int x = 0; x < width; x++){
@@ -119,11 +115,6 @@ void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int ke
 			output[y][x].b = sum_b / count;
 		}
 	}
-	
-	for(int i = 0; i < height; i++){
-		free(temp[i]);
-	}
-	free(temp);
 }
 
 int main(int argc, char** argv) {
@@ -151,7 +142,37 @@ int main(int argc, char** argv) {
     output_image[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
   }
 
+	// temporary storage to hold horizontal blur
+	Pixel_t** temp =  (Pixel_t**)malloc(height * sizeof(Pixel_t*));
+	for (int i = 0; i < height; i++) {
+    temp[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
+	}
+
+	//============================= TESTING =================================
+	// unoptimized
+	struct timeval start, end;
+	gettimeofday(&start, NULL);
   blur_image(input_image, output_image, width, height, 20);
+	gettimeofday(&end, NULL);
+
+	double seconds = end.tv_sec - start.tv_sec;
+  double microseconds = end.tv_usec - start.tv_usec;
+  double total_microseconds_un = seconds * 1000000 + microseconds;
+	printf("Unoptimized Blur: %2f\n", total_microseconds_un);
+
+	// optimized
+	gettimeofday(&start, NULL);
+	blur_image_opt(input_image, output_image, temp, width, height, 20);
+	gettimeofday(&end, NULL);
+
+	seconds = end.tv_sec - start.tv_sec;
+  microseconds = end.tv_usec - start.tv_usec;
+  double total_microseconds_op = seconds * 1000000 + microseconds;
+	printf("Optimized Blur:   %2f\n", total_microseconds_op);
+
+	printf("Speedup: %2fx\n", total_microseconds_un / total_microseconds_op);
+	//============================ END TESTING ===============================
+
 
   // Convert back to stb format
   unsigned char* output_data = create_output_array(output_image, width, height, channels);
@@ -180,9 +201,11 @@ int main(int argc, char** argv) {
   for (int i = 0; i < height; i++) {
     free(input_image[i]);
     free(output_image[i]);
+		free(temp[i]);
   }
   free(input_image);
   free(output_image);
+	free(temp);
 
   return !success;
 }
