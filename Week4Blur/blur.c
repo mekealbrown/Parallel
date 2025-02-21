@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <smmintrin.h>
 
 // STB Image setup
 #define STB_IMAGE_IMPLEMENTATION
@@ -68,6 +69,63 @@ void blurImage(Pixel_t** image, Pixel_t** output, int width, int height, int ker
   }
 }
 
+void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size)
+{
+	int radius = kernel_size / 2;
+
+	Pixel_t** temp =  (Pixel_t**)malloc(height * sizeof(Pixel_t*));
+	for (int i = 0; i < height; i++) {
+    temp[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
+	}
+
+	for(int y = 0; y < height; y++){
+		for(int x = 0; x < width; x++){
+			int count = 0;
+			int sum_r = 0, sum_g = 0, sum_b = 0;
+			for(int kx = -radius; kx <= radius; kx++){
+				int px = x + kx;
+
+				if (px >= 0 && px < width){
+					sum_r += image[y][px].r;
+					sum_g += image[y][px].g;
+					sum_b += image[y][px].b;
+					++count;
+				}
+			}
+
+			temp[y][x].r = sum_r / count;
+			temp[y][x].g = sum_g / count;
+			temp[y][x].b = sum_b / count;
+		}
+	}
+
+	for(int x = 0; x < width; x++){
+		for(int y = 0; y < height; y++){
+			int count = 0;
+			int sum_r = 0, sum_g = 0, sum_b = 0;
+			for(int ky = -radius; ky <= radius; ky++){
+				int py = y + ky;
+
+				if (py >= 0 && py < height){
+					sum_r += temp[py][x].r;
+					sum_g += temp[py][x].g;
+					sum_b += temp[py][x].b;
+					++count;
+				}
+			}
+
+			output[y][x].r = sum_r / count;
+			output[y][x].g = sum_g / count;
+			output[y][x].b = sum_b / count;
+		}
+	}
+	
+	for(int i = 0; i < height; i++){
+		free(temp[i]);
+	}
+	free(temp);
+}
+
 int main(int argc, char** argv) {
   if (argc != 3) {
     printf("Usage: %s <input_image> <output_image>\n", argv[0]);
@@ -93,7 +151,7 @@ int main(int argc, char** argv) {
     output_image[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
   }
 
-  blurImage(input_image, output_image, width, height, 10);
+  blur_image(input_image, output_image, width, height, 20);
 
   // Convert back to stb format
   unsigned char* output_data = create_output_array(output_image, width, height, channels);

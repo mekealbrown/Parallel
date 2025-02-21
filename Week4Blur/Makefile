@@ -8,4 +8,4 @@ $(TARGET): $(SRC)
 
 
 clean: 
-	@rm blur images/out.*
+	@rm blur images/output.*
