@@ -70,51 +70,86 @@ void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int ke
   }
 }
 
-void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
-{
-	int radius = kernel_size / 2;
+void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size) {
+  int radius = kernel_size / 2;
 
-	for(int y = 0; y < height; y++){
-		for(int x = 0; x < width; x++){
-			int count = 0;
-			int sum_r = 0, sum_g = 0, sum_b = 0;
-			for(int kx = -radius; kx <= radius; kx++){
-				int px = x + kx;
+  // horizontal pass
+  for(int y = 0; y < height; y++){
+    int sum_r = 0, sum_g = 0, sum_b = 0;
+    int count = 0;
 
-				if (px >= 0 && px < width){
-					sum_r += image[y][px].r;
-					sum_g += image[y][px].g;
-					sum_b += image[y][px].b;
-					++count;
-				}
-			}
+		// initial pixel
+    for(int kx = -radius; kx <= radius; kx++){
+      if (kx >= 0 && kx < width) {
+        sum_r += image[y][kx].r;
+        sum_g += image[y][kx].g;
+        sum_b += image[y][kx].b;
+        count++;
+      }
+    }
 
-			temp[y][x].r = sum_r / count;
-			temp[y][x].g = sum_g / count;
-			temp[y][x].b = sum_b / count;
-		}
-	}
+    for(int x = 0; x < width; x++){
+      temp[y][x].r = sum_r / count;
+      temp[y][x].g = sum_g / count;
+      temp[y][x].b = sum_b / count;
 
-	for(int x = 0; x < width; x++){
-		for(int y = 0; y < height; y++){
-			int count = 0;
-			int sum_r = 0, sum_g = 0, sum_b = 0;
-			for(int ky = -radius; ky <= radius; ky++){
-				int py = y + ky;
+      // remove the leftmost pixel
+      int left = x - radius;
+      if(left >= 0){
+        sum_r -= image[y][left].r;
+        sum_g -= image[y][left].g;
+        sum_b -= image[y][left].b;
+        count--;
+      }
+      // add the rightmost pixel
+      int right = x + radius + 1;
+      if(right < width){
+        sum_r += image[y][right].r;
+        sum_g += image[y][right].g;
+        sum_b += image[y][right].b;
+        count++;
+      }
+    }
+  }
 
-				if (py >= 0 && py < height){
-					sum_r += temp[py][x].r;
-					sum_g += temp[py][x].g;
-					sum_b += temp[py][x].b;
-					++count;
-				}
-			}
+  // vertical pass
+  for(int x = 0; x < width; x++){
+    int sum_r = 0, sum_g = 0, sum_b = 0;
+    int count = 0;
 
-			output[y][x].r = sum_r / count;
-			output[y][x].g = sum_g / count;
-			output[y][x].b = sum_b / count;
-		}
-	}
+		// initial pixel
+    for(int ky = -radius; ky <= radius; ky++){
+      if(ky >= 0 && ky < height){
+        sum_r += temp[ky][x].r;
+        sum_g += temp[ky][x].g;
+        sum_b += temp[ky][x].b;
+        count++;
+      }
+    }
+
+    for(int y = 0; y < height; y++){
+      output[y][x].r = sum_r / count;
+      output[y][x].g = sum_g / count;
+      output[y][x].b = sum_b / count;
+
+      // remove top pixel
+      int top = y - radius;
+      if(top >= 0){
+        sum_r -= temp[top][x].r;
+        sum_g -= temp[top][x].g;
+        sum_b -= temp[top][x].b;
+        count--;
+      }
+      // add bottom pixel
+      int bottom = y + radius + 1;
+      if(bottom < height){
+        sum_r += temp[bottom][x].r;
+        sum_g += temp[bottom][x].g;
+        sum_b += temp[bottom][x].b;
+        count++;
+      }
+    }
+  }
 }
 
 int main(int argc, char** argv) {
