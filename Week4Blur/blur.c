@@ -164,25 +164,36 @@ void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width
 	3. store average for window
 	4. "slide window"
 	5. subtract pixel just outside the left side of the window
+
+
+	Window:
+	_______________
+	|!|_|_|_|_|_|_|   <-- blur (0, 0)
+	|_____|           <-- kernel_size = 3
+
+	Shift window over 1 spot
+	_______________
+	|_|!|_|_|_|_|_|   <-- blur (1, 0)
+	  |_____|         <-- kernel_size = 3
+
+
+	Do this for 8 rows(horizontal pass) at a time with SIMD!
 */
 void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
 {
-  int radius = kernel_size / 2;
 
   // ============ Horizontal Pass ==================
   for(int y = 0; y + 7 < height; y += 8){
-		// sum accumulator registers for r,g,b
+    // sum accumulator registers for r,g,b
     __m256i result_r = _mm256_setzero_si256();
     __m256i result_g = _mm256_setzero_si256();
     __m256i result_b = _mm256_setzero_si256();
 
-		//TODO: change kernel_size-1 to radius
-
     // Initial window: sum pixels 0 to kernel_size-1
     for(int kx = 0; kx < kernel_size; kx++){
-			// each Pixel_t is 32bit, same as int
-			// cast the pointer to image[y][kx] to int pointer, then get that value
-			// store 8 of these(do 8 pixels at a time)
+      // each Pixel_t is 32bit, same as int
+      // cast the pointer to image[y][kx] to int pointer, then get that value
+      // store 8 of these(do 8 Pixels at a time)
       __m256i reg = _mm256_setr_epi32(
         *(int*)&image[y + 0][kx],
         *(int*)&image[y + 1][kx],
@@ -193,6 +204,7 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
         *(int*)&image[y + 6][kx],
         *(int*)&image[y + 7][kx]
       );
+			// add to accumulators
       result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg, _mm256_set1_epi32(0xFF)));
       result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg, 8), _mm256_set1_epi32(0xFF)));
       result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg, 16), _mm256_set1_epi32(0xFF)));
@@ -200,7 +212,8 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
 
     int sums_r[8], sums_g[8], sums_b[8];
     for(int x = 0; x < width; x++){
-      // Store current window
+      // average and store current window
+			// TODO: reciprical multiplication to speed up division??
       _mm256_storeu_si256((__m256i*)sums_r, result_r);
       _mm256_storeu_si256((__m256i*)sums_g, result_g);
       _mm256_storeu_si256((__m256i*)sums_b, result_b);
@@ -210,12 +223,14 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
         output[y + i][x].b = (unsigned char)(sums_b[i] / kernel_size);
       }
 
-			//TODO: investigate how to truly slide window, gotta clean up edges
-      // Slide window
+      // slide window with right boundary clamping
       if(x < width - 1){
-        int left_col = x;  // Subtract pixel just before current window
+        int left_col = x;  // subtract pixel just before current window
+        int right_col = x + kernel_size;  // add next pixel entering window
+
+        // subtract left_col if valid
         if(left_col >= 0){
-					// get our 8 Pixels
+          // get our 8 Pixels
           __m256i reg_left = _mm256_setr_epi32(
             *(int*)&image[y + 0][left_col],
             *(int*)&image[y + 1][left_col],
@@ -226,35 +241,37 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
             *(int*)&image[y + 6][left_col],
             *(int*)&image[y + 7][left_col]
           );
-					// subtract the r,g,b elements from our accumulators
+          // subtract the r,g,b elements from the accumulators
           result_r = _mm256_sub_epi32(result_r, _mm256_and_si256(reg_left, _mm256_set1_epi32(0xFF)));
           result_g = _mm256_sub_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_left, 8), _mm256_set1_epi32(0xFF)));
           result_b = _mm256_sub_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_left, 16), _mm256_set1_epi32(0xFF)));
         }
 
-        int right_col = x + kernel_size;  // Add next pixel entering window
-        if(right_col < width){
-					// get the 8 in front of last window
-          __m256i reg_right = _mm256_setr_epi32(
-            *(int*)&image[y + 0][right_col],
-            *(int*)&image[y + 1][right_col],
-            *(int*)&image[y + 2][right_col],
-            *(int*)&image[y + 3][right_col],
-            *(int*)&image[y + 4][right_col],
-            *(int*)&image[y + 5][right_col],
-            *(int*)&image[y + 6][right_col],
-            *(int*)&image[y + 7][right_col]
-          );
-					// add to accumulators
-          result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg_right, _mm256_set1_epi32(0xFF)));
-          result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_right, 8), _mm256_set1_epi32(0xFF)));
-          result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_right, 16), _mm256_set1_epi32(0xFF)));
+        // clamp right_col to width - 1 if it exceeds the image boundary
+        if(right_col >= width){
+          right_col = width - 1;  // reuse the last valid column
         }
+
+        // get the 8 in front of last window
+				// add the right_col
+        __m256i reg_right = _mm256_setr_epi32(
+          *(int*)&image[y + 0][right_col],
+          *(int*)&image[y + 1][right_col],
+          *(int*)&image[y + 2][right_col],
+          *(int*)&image[y + 3][right_col],
+          *(int*)&image[y + 4][right_col],
+          *(int*)&image[y + 5][right_col],
+          *(int*)&image[y + 6][right_col],
+          *(int*)&image[y + 7][right_col]
+        );
+        // add to accumulators
+        result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg_right, _mm256_set1_epi32(0xFF)));
+        result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_right, 8), _mm256_set1_epi32(0xFF)));
+        result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_right, 16), _mm256_set1_epi32(0xFF)));
       }
     }
   }
 }
-
 
 int main(int argc, char** argv)
 {
