@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <smmintrin.h>
 #include <sys/time.h>
+#include <immintrin.h>
 
 // STB Image setup
 #define STB_IMAGE_IMPLEMENTATION
@@ -10,15 +11,16 @@
 #include "Include/stb_image_write.h"
 
 typedef struct {
-  unsigned char r, g, b;
+    unsigned char r, g, b, padding; // ensures 4-byte alignment
 } Pixel_t;
 
 
-Pixel_t** create_Pixel_array(unsigned char* data, int width, int height, int channels) {
+Pixel_t** create_Pixel_array(unsigned char* data, int width, int height, int channels)
+{
   Pixel_t** image = (Pixel_t**)malloc(height * sizeof(Pixel_t*));
-  for (int i = 0; i < height; i++) {
+  for(int i = 0; i < height; i++){
     image[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
-    for (int j = 0; j < width; j++) {
+    for(int j = 0; j < width; j++){
       int idx = (i * width + j) * channels;
       image[i][j].r = data[idx];
       image[i][j].g = data[idx + 1];
@@ -28,10 +30,11 @@ Pixel_t** create_Pixel_array(unsigned char* data, int width, int height, int cha
   return image;
 }
 
-unsigned char* create_output_array(Pixel_t** image, int width, int height, int channels) {
+unsigned char* create_output_array(Pixel_t** image, int width, int height, int channels)
+{
   unsigned char* output = (unsigned char*)malloc(width * height * channels);
-  for (int i = 0; i < height; i++) {
-    for (int j = 0; j < width; j++) {
+  for(int i = 0; i < height; i++){
+    for(int j = 0; j < width; j++){
       int idx = (i * width + j) * channels;
       output[idx] = image[i][j].r;
       output[idx + 1] = image[i][j].g;
@@ -41,20 +44,22 @@ unsigned char* create_output_array(Pixel_t** image, int width, int height, int c
   return output;
 }
 
-void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size) {
+// w.o.w... 4 nested for loops
+void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size)
+{
   int radius = kernel_size / 2;
 
-  for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width; x++) {
+  for(int y = 0; y < height; y++){
+    for(int x = 0; x < width; x++){
       int sum_r = 0, sum_g = 0, sum_b = 0, count = 0;
 
-      for (int ky = -radius; ky <= radius; ky++) {
-        for (int kx = -radius; kx <= radius; kx++) {
+      for(int ky = -radius; ky <= radius; ky++){
+        for(int kx = -radius; kx <= radius; kx++){
           int ny = y + ky;
           int nx = x + kx;
 
 					// if it's in bounds
-          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+          if(ny >= 0 && ny < height && nx >= 0 && nx < width){
             sum_r += image[ny][nx].r;
             sum_g += image[ny][nx].g;
             sum_b += image[ny][nx].b;
@@ -70,7 +75,8 @@ void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int ke
   }
 }
 
-void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size) {
+void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
+{
   int radius = kernel_size / 2;
 
   // horizontal pass
@@ -152,16 +158,117 @@ void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width
   }
 }
 
-int main(int argc, char** argv) {
-  if (argc != 3) {
-    printf("Usage: %s <input_image> <output_image>\n", argv[0]);
+/*
+	1. Initialize r,g,b accumulators. Holds sums for each window r,g,b elements
+	2. Compute inital sum - pixels 0 to kernel_size-1
+	3. store average for window
+	4. "slide window"
+	5. subtract pixel just outside the left side of the window
+*/
+void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
+{
+  int radius = kernel_size / 2;
+
+  // ============ Horizontal Pass ==================
+  for(int y = 0; y + 7 < height; y += 8){
+		// sum accumulator registers for r,g,b
+    __m256i result_r = _mm256_setzero_si256();
+    __m256i result_g = _mm256_setzero_si256();
+    __m256i result_b = _mm256_setzero_si256();
+
+		//TODO: change kernel_size-1 to radius
+
+    // Initial window: sum pixels 0 to kernel_size-1
+    for(int kx = 0; kx < kernel_size; kx++){
+			// each Pixel_t is 32bit, same as int
+			// cast the pointer to image[y][kx] to int pointer, then get that value
+			// store 8 of these(do 8 pixels at a time)
+      __m256i reg = _mm256_setr_epi32(
+        *(int*)&image[y + 0][kx],
+        *(int*)&image[y + 1][kx],
+        *(int*)&image[y + 2][kx],
+        *(int*)&image[y + 3][kx],
+        *(int*)&image[y + 4][kx],
+        *(int*)&image[y + 5][kx],
+        *(int*)&image[y + 6][kx],
+        *(int*)&image[y + 7][kx]
+      );
+      result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg, _mm256_set1_epi32(0xFF)));
+      result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg, 8), _mm256_set1_epi32(0xFF)));
+      result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg, 16), _mm256_set1_epi32(0xFF)));
+    }
+
+    int sums_r[8], sums_g[8], sums_b[8];
+    for(int x = 0; x < width; x++){
+      // Store current window
+      _mm256_storeu_si256((__m256i*)sums_r, result_r);
+      _mm256_storeu_si256((__m256i*)sums_g, result_g);
+      _mm256_storeu_si256((__m256i*)sums_b, result_b);
+      for(int i = 0; i < 8; i++){
+        output[y + i][x].r = (unsigned char)(sums_r[i] / kernel_size);
+        output[y + i][x].g = (unsigned char)(sums_g[i] / kernel_size);
+        output[y + i][x].b = (unsigned char)(sums_b[i] / kernel_size);
+      }
+
+			//TODO: investigate how to truly slide window, gotta clean up edges
+      // Slide window
+      if(x < width - 1){
+        int left_col = x;  // Subtract pixel just before current window
+        if(left_col >= 0){
+					// get our 8 Pixels
+          __m256i reg_left = _mm256_setr_epi32(
+            *(int*)&image[y + 0][left_col],
+            *(int*)&image[y + 1][left_col],
+            *(int*)&image[y + 2][left_col],
+            *(int*)&image[y + 3][left_col],
+            *(int*)&image[y + 4][left_col],
+            *(int*)&image[y + 5][left_col],
+            *(int*)&image[y + 6][left_col],
+            *(int*)&image[y + 7][left_col]
+          );
+					// subtract the r,g,b elements from our accumulators
+          result_r = _mm256_sub_epi32(result_r, _mm256_and_si256(reg_left, _mm256_set1_epi32(0xFF)));
+          result_g = _mm256_sub_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_left, 8), _mm256_set1_epi32(0xFF)));
+          result_b = _mm256_sub_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_left, 16), _mm256_set1_epi32(0xFF)));
+        }
+
+        int right_col = x + kernel_size;  // Add next pixel entering window
+        if(right_col < width){
+					// get the 8 in front of last window
+          __m256i reg_right = _mm256_setr_epi32(
+            *(int*)&image[y + 0][right_col],
+            *(int*)&image[y + 1][right_col],
+            *(int*)&image[y + 2][right_col],
+            *(int*)&image[y + 3][right_col],
+            *(int*)&image[y + 4][right_col],
+            *(int*)&image[y + 5][right_col],
+            *(int*)&image[y + 6][right_col],
+            *(int*)&image[y + 7][right_col]
+          );
+					// add to accumulators
+          result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg_right, _mm256_set1_epi32(0xFF)));
+          result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_right, 8), _mm256_set1_epi32(0xFF)));
+          result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_right, 16), _mm256_set1_epi32(0xFF)));
+        }
+      }
+    }
+  }
+}
+
+
+int main(int argc, char** argv)
+{
+  if(argc != 4){
+    printf("Usage: %s <input_image> <output_image> <kernel_size>\n", argv[0]);
     return 1;
   }
 
+	int kernel_size = atoi(argv[3]);
+	
   // Load image
   int width, height, channels;
   unsigned char* data = stbi_load(argv[1], &width, &height, &channels, 0);
-  if (!data) {
+  if(!data){
     printf("Error loading image %s\n", argv[1]);
     return 1;
   }
@@ -173,13 +280,13 @@ int main(int argc, char** argv) {
 
   // Create output image
   Pixel_t** output_image = (Pixel_t**)malloc(height * sizeof(Pixel_t*));
-  for (int i = 0; i < height; i++) {
+  for(int i = 0; i < height; i++){
     output_image[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
   }
 
 	// temporary storage to hold horizontal blur
 	Pixel_t** temp =  (Pixel_t**)malloc(height * sizeof(Pixel_t*));
-	for (int i = 0; i < height; i++) {
+	for(int i = 0; i < height; i++){
     temp[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
 	}
 
@@ -187,7 +294,7 @@ int main(int argc, char** argv) {
 	// unoptimized
 	struct timeval start, end;
 	gettimeofday(&start, NULL);
-  blur_image(input_image, output_image, width, height, 20);
+  blur_image(input_image, output_image, width, height, kernel_size);
 	gettimeofday(&end, NULL);
 
 	double seconds = end.tv_sec - start.tv_sec;
@@ -197,7 +304,8 @@ int main(int argc, char** argv) {
 
 	// optimized
 	gettimeofday(&start, NULL);
-	blur_image_opt(input_image, output_image, temp, width, height, 20);
+	blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
+	//blur_image_opt(input_image, output_image, temp, width, height, 20);
 	gettimeofday(&end, NULL);
 
 	seconds = end.tv_sec - start.tv_sec;
@@ -208,6 +316,9 @@ int main(int argc, char** argv) {
 	printf("Speedup: %2fx\n", total_microseconds_un / total_microseconds_op);
 	//============================ END TESTING ===============================
 
+	// DOES IT COMPILE AND RUN?
+	
+
 
   // Convert back to stb format
   unsigned char* output_data = create_output_array(output_image, width, height, channels);
@@ -215,25 +326,25 @@ int main(int argc, char** argv) {
   // Save image
   int success = 0;
   const char* ext = strrchr(argv[2], '.');
-  if (!ext) {
+  if(!ext){
     printf("Output filename needs an extension\n");
-  } else if (strcmp(ext, ".png") == 0) {
+  } else if(strcmp(ext, ".png") == 0){
     success = stbi_write_png(argv[2], width, height, channels, output_data, width * channels);
-  } else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0) {
+  } else if(strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0){
     success = stbi_write_jpg(argv[2], width, height, channels, output_data, 90); // 90 = quality
-  } else if (strcmp(ext, ".bmp") == 0) {
+  } else if(strcmp(ext, ".bmp") == 0){
     success = stbi_write_bmp(argv[2], width, height, channels, output_data);
-  } else {
+  } else{
     printf("Unsupported output format. Use .png, .jpg, or .bmp\n");
   }
 
-  if (!success) {
+  if(!success){
     printf("Error writing output image\n");
   }
 
   // Cleanup
   free(output_data);
-  for (int i = 0; i < height; i++) {
+  for(int i = 0; i < height; i++){
     free(input_image[i]);
     free(output_image[i]);
 		free(temp[i]);
