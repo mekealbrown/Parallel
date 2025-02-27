@@ -10,6 +10,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "Include/stb_image_write.h"
 
+
 typedef struct {
     unsigned char r, g, b, padding; // ensures 4-byte alignment
 } Pixel_t;
@@ -160,7 +161,7 @@ void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width
 
 /*
 	1. Initialize r,g,b accumulators. Holds sums for each window r,g,b elements
-	2. Compute inital sum - pixels 0 to kernel_size-1
+	2. Compute inital sum -- pixels 0 to kernel_size-1
 	3. store average for window
 	4. "slide window"
 	5. subtract pixel just outside the left side of the window
@@ -182,8 +183,12 @@ void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width
 void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
 {
 
+	float recip = 1.0f / kernel_size;
+	__m256 recip_kern_vec = _mm256_set1_ps(recip); // fill vector with reciprical -- ps is packed single-precision, good for 8 floats
+
   // ============ Horizontal Pass ==================
-  for(int y = 0; y + 7 < height; y += 8){
+	int y;
+  for(y = 0; y + 7 < height; y += 8){
     // sum accumulator registers for r,g,b
     __m256i result_r = _mm256_setzero_si256();
     __m256i result_g = _mm256_setzero_si256();
@@ -210,42 +215,44 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
       result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg, 16), _mm256_set1_epi32(0xFF)));
     }
 
-    int sums_r[8], sums_g[8], sums_b[8];
     for(int x = 0; x < width; x++){
       // average and store current window
-			// TODO: reciprical multiplication to speed up division??
-      _mm256_storeu_si256((__m256i*)sums_r, result_r);
-      _mm256_storeu_si256((__m256i*)sums_g, result_g);
-      _mm256_storeu_si256((__m256i*)sums_b, result_b);
+			// convert to float, multiply by reciprical, convert back to __m256i, store
+			// syntax notes:
+			//  - cvtps_epi32 = convert packed single precision floats to 8 32bit ints
+			//  - cvtepi32_ps = convert 8 32bit ints to 8 packed single precision floats
+			//  - mul_ps      = multiply two registers holding 8 packed single precision floats
+			__m256i avg_r = _mm256_cvtps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(result_r), recip_kern_vec));
+			__m256i avg_g = _mm256_cvtps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(result_g), recip_kern_vec));
+			__m256i avg_b = _mm256_cvtps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(result_b), recip_kern_vec));
+
+
       for(int i = 0; i < 8; i++){
-        output[y + i][x].r = (unsigned char)(sums_r[i] / kernel_size);
-        output[y + i][x].g = (unsigned char)(sums_g[i] / kernel_size);
-        output[y + i][x].b = (unsigned char)(sums_b[i] / kernel_size);
-      }
+			  temp[y + i][x].r = (unsigned char)_mm256_extract_epi32(avg_r, i);
+			  temp[y + i][x].g = (unsigned char)_mm256_extract_epi32(avg_g, i);
+			  temp[y + i][x].b = (unsigned char)_mm256_extract_epi32(avg_b, i);
+			}
 
       // slide window with right boundary clamping
       if(x < width - 1){
         int left_col = x;  // subtract pixel just before current window
         int right_col = x + kernel_size;  // add next pixel entering window
 
-        // subtract left_col if valid
-        if(left_col >= 0){
-          // get our 8 Pixels
-          __m256i reg_left = _mm256_setr_epi32(
-            *(int*)&image[y + 0][left_col],
-            *(int*)&image[y + 1][left_col],
-            *(int*)&image[y + 2][left_col],
-            *(int*)&image[y + 3][left_col],
-            *(int*)&image[y + 4][left_col],
-            *(int*)&image[y + 5][left_col],
-            *(int*)&image[y + 6][left_col],
-            *(int*)&image[y + 7][left_col]
-          );
-          // subtract the r,g,b elements from the accumulators
-          result_r = _mm256_sub_epi32(result_r, _mm256_and_si256(reg_left, _mm256_set1_epi32(0xFF)));
-          result_g = _mm256_sub_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_left, 8), _mm256_set1_epi32(0xFF)));
-          result_b = _mm256_sub_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_left, 16), _mm256_set1_epi32(0xFF)));
-        }
+        // get the 8 Pixels
+        __m256i reg_left = _mm256_setr_epi32(
+          *(int*)&image[y + 0][left_col],
+          *(int*)&image[y + 1][left_col],
+          *(int*)&image[y + 2][left_col],
+          *(int*)&image[y + 3][left_col],
+          *(int*)&image[y + 4][left_col],
+          *(int*)&image[y + 5][left_col],
+          *(int*)&image[y + 6][left_col],
+          *(int*)&image[y + 7][left_col]
+        );
+        // subtract the r,g,b elements from the accumulators
+        result_r = _mm256_sub_epi32(result_r, _mm256_and_si256(reg_left, _mm256_set1_epi32(0xFF)));
+        result_g = _mm256_sub_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_left, 8), _mm256_set1_epi32(0xFF)));
+        result_b = _mm256_sub_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_left, 16), _mm256_set1_epi32(0xFF)));
 
         // clamp right_col to width - 1 if it exceeds the image boundary
         if(right_col >= width){
@@ -264,13 +271,232 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
           *(int*)&image[y + 6][right_col],
           *(int*)&image[y + 7][right_col]
         );
-        // add to accumulators
+        // add to accumulators, mask off parts we dont want, shift right to get next channel
         result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg_right, _mm256_set1_epi32(0xFF)));
         result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_right, 8), _mm256_set1_epi32(0xFF)));
         result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_right, 16), _mm256_set1_epi32(0xFF)));
       }
     }
   }
+
+	// handle remaining Pixels if not divisible by 8
+	for(y; y < height; y++){
+    int sum_r = 0, sum_g = 0, sum_b = 0;
+    int count = 0;
+
+		// initial pixel
+    for(int kx = 0; kx < kernel_size; kx++){
+      if (kx >= 0 && kx < width) {
+        sum_r += image[y][kx].r;
+        sum_g += image[y][kx].g;
+        sum_b += image[y][kx].b;
+        count++;
+      }
+    }
+
+    for(int x = 0; x < width; x++){
+      temp[y][x].r = sum_r / count;
+      temp[y][x].g = sum_g / count;
+      temp[y][x].b = sum_b / count;
+
+      // remove the leftmost pixel
+      sum_r -= image[y][x].r;
+      sum_g -= image[y][x].g;
+      sum_b -= image[y][x].b;
+      count--;
+
+      // add the rightmost pixel
+      int right = x + kernel_size;
+      if(right < width){
+        sum_r += image[y][right].r;
+        sum_g += image[y][right].g;
+        sum_b += image[y][right].b;
+        count++;
+      }
+    }
+  }
+
+	//=================== Vertical Pass =========================
+	int x;
+	for(x = 0; x + 7 < width; x += 8){
+		__m256i result_r = _mm256_setzero_si256();
+		__m256i result_g = _mm256_setzero_si256();
+		__m256i result_b = _mm256_setzero_si256();
+
+		for(int ky = 0; ky < kernel_size; ky++){
+
+			__m256i reg = _mm256_setr_epi32( // 256 bit reg, set reverse, extended packed ints(32bits)
+				*(int*)&temp[ky][x], *(int*)&temp[ky][x + 1],
+				*(int*)&temp[ky][x + 2], *(int*)&temp[ky][x + 3],
+				*(int*)&temp[ky][x + 4], *(int*)&temp[ky][x + 5],
+				*(int*)&temp[ky][x + 6], *(int*)&temp[ky][x + 7]
+			);
+			result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg, _mm256_set1_epi32(0xFF)));
+			result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg, 8), _mm256_set1_epi32(0xFF)));
+			result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg, 16), _mm256_set1_epi32(0xFF)));
+		}
+		// we now have the sum for the first window
+		// now start loop to slide window, starting with storing current average in output
+		for(int y = 0; y < height; y++){
+			__m256i avg_r = _mm256_cvtps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(result_r), recip_kern_vec));
+			__m256i avg_g = _mm256_cvtps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(result_g), recip_kern_vec));
+			__m256i avg_b = _mm256_cvtps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(result_b), recip_kern_vec));
+
+			for(int i = 0; i < 8; i++){
+				output[y][x + i].r = _mm256_extract_epi32(avg_r, i);
+				output[y][x + i].g = _mm256_extract_epi32(avg_g, i);
+				output[y][x + i].b = _mm256_extract_epi32(avg_b, i);
+			}
+
+			if(y < height - 1){
+				int bottom = y; int top = y + kernel_size;
+
+				__m256i reg_bottom = _mm256_setr_epi32(
+          *(int*)&temp[bottom][x + 0],
+          *(int*)&temp[bottom][x + 1],
+          *(int*)&temp[bottom][x + 2],
+          *(int*)&temp[bottom][x + 3],
+          *(int*)&temp[bottom][x + 4],
+          *(int*)&temp[bottom][x + 5],
+          *(int*)&temp[bottom][x + 6],
+          *(int*)&temp[bottom][x + 7]
+        );
+
+				// subtract the r,g,b elements from the accumulators
+        result_r = _mm256_sub_epi32(result_r, _mm256_and_si256(reg_bottom, _mm256_set1_epi32(0xFF)));
+        result_g = _mm256_sub_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_bottom, 8), _mm256_set1_epi32(0xFF)));
+        result_b = _mm256_sub_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_bottom, 16), _mm256_set1_epi32(0xFF)));
+
+        // clamp top to height - 1 if it exceeds the image boundary
+        if(top >= height){
+          top = height - 1;  // reuse the last valid row
+        }
+        // get the 8 in front of last window
+				// add the right_col
+        __m256i reg_top = _mm256_setr_epi32(
+          *(int*)&temp[top][x + 0],
+          *(int*)&temp[top][x + 1],
+          *(int*)&temp[top][x + 2],
+          *(int*)&temp[top][x + 3],
+          *(int*)&temp[top][x + 4],
+          *(int*)&temp[top][x + 5],
+          *(int*)&temp[top][x + 6],
+          *(int*)&temp[top][x + 7]
+        );
+        // add to accumulators
+        result_r = _mm256_add_epi32(result_r, _mm256_and_si256(reg_top, _mm256_set1_epi32(0xFF)));
+        result_g = _mm256_add_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_top, 8), _mm256_set1_epi32(0xFF)));
+        result_b = _mm256_add_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_top, 16), _mm256_set1_epi32(0xFF)));				
+			}
+		}
+	}
+
+		// handle remaining Pixels if not divisible by 8
+	for(x; x < width; x++){
+    int sum_r = 0, sum_g = 0, sum_b = 0;
+    int count = 0;
+
+		// initial pixel
+    for(int ky = 0; ky < kernel_size; ky++){
+      if(ky >= 0 && ky < height){
+        sum_r += temp[ky][x].r;
+        sum_g += temp[ky][x].g;
+        sum_b += temp[ky][x].b;
+        count++;
+      }
+    }
+
+    for(int y = 0; y < height; y++){
+      output[y][x].r = sum_r / count;
+      output[y][x].g = sum_g / count;
+      output[y][x].b = sum_b / count;
+
+      // remove top pixel
+        sum_r -= temp[y][x].r;
+        sum_g -= temp[y][x].g;
+        sum_b -= temp[y][x].b;
+        count--;
+
+      // add bottom pixel
+      int bottom = y + kernel_size;
+      if(bottom < height){
+        sum_r += temp[bottom][x].r;
+        sum_g += temp[bottom][x].g;
+        sum_b += temp[bottom][x].b;
+        count++;
+      }
+  	}
+	}
+}
+
+void test_blur_performance
+(Pixel_t** input_image, Pixel_t** output_image, Pixel_t** temp, int width, int height, int kernel_size)
+{
+    struct timeval start, end;
+    double seconds, microseconds, time_unopt = 0, time_opt = 0, time_simd = 0;
+    const int warmup_runs = 2;  // Number of warmup runs
+    const int test_runs = 5;    // Number of timed runs for averaging
+
+    // Warmup runs (no timing)
+    for (int i = 0; i < warmup_runs; i++) {
+        blur_image(input_image, output_image, width, height, kernel_size);
+        blur_image_opt(input_image, output_image, temp, width, height, kernel_size);
+        blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
+    }
+
+		#ifdef UNOP
+    	// Timed runs for Unoptimized
+    	for (int i = 0; i < test_runs; i++) {
+    	    gettimeofday(&start, NULL);
+    	    blur_image(input_image, output_image, width, height, kernel_size);
+    	    gettimeofday(&end, NULL);
+    	    seconds = end.tv_sec - start.tv_sec;
+    	    microseconds = end.tv_usec - start.tv_usec;
+    	    time_unopt += seconds * 1000000 + microseconds;
+    	}
+    	time_unopt /= test_runs;
+		#endif
+
+		#ifdef OP
+    	// Timed runs for Optimized (non-SIMD)
+    	for (int i = 0; i < test_runs; i++) {
+    	    gettimeofday(&start, NULL);
+    	    blur_image_opt(input_image, output_image, temp, width, height, kernel_size);
+    	    gettimeofday(&end, NULL);
+    	    seconds = end.tv_sec - start.tv_sec;
+    	    microseconds = end.tv_usec - start.tv_usec;
+    	    time_opt += seconds * 1000000 + microseconds;
+    	}
+    	time_opt /= test_runs;
+		#endif
+
+		#ifdef OP_SIMD
+    	// Timed runs for Optimized (SIMD)
+    	for (int i = 0; i < test_runs; i++) {
+    	    gettimeofday(&start, NULL);
+    	    blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
+    	    gettimeofday(&end, NULL);
+    	    seconds = end.tv_sec - start.tv_sec;
+    	    microseconds = end.tv_usec - start.tv_usec;
+    	    time_simd += seconds * 1000000 + microseconds;
+    	}
+    	time_simd /= test_runs;
+		#endif
+
+    // Convert to milliseconds for readability
+    double time_unopt_ms = time_unopt / 1000.0;
+    double time_opt_ms = time_opt / 1000.0;
+    double time_simd_ms = time_simd / 1000.0;
+
+    // Print results in a cleaned-up table
+    printf("\n=== Blur Function Performance ===\n");
+    printf("+----------------------+---------------+------------+\n");
+    printf("| Version              | Time (ms)     | Speedup       |\n");
+    printf("+----------------------+---------------+------------+\n");
+    printf("| Unoptimized          | %11.2f | %11.2f |\n", time_unopt_ms, 1.0);
+    printf("| Optimized (non-SIMD) | %11.2f | %11.2f |\n", time_opt_ms, time_unopt / time_opt);
+    printf("| Optimized (SIMD)     | %11.2f | %11.2f |\n", time_simd_ms, time_unopt / time_simd);
+    printf("+----------------------+---------------+------------+\n");
 }
 
 int main(int argc, char** argv)
@@ -307,35 +533,8 @@ int main(int argc, char** argv)
     temp[i] = (Pixel_t*)malloc(width * sizeof(Pixel_t));
 	}
 
-	//============================= TESTING =================================
-	// unoptimized
-	struct timeval start, end;
-	gettimeofday(&start, NULL);
-  blur_image(input_image, output_image, width, height, kernel_size);
-	gettimeofday(&end, NULL);
 
-	double seconds = end.tv_sec - start.tv_sec;
-  double microseconds = end.tv_usec - start.tv_usec;
-  double total_microseconds_un = seconds * 1000000 + microseconds;
-	printf("Unoptimized Blur: %2f\n", total_microseconds_un);
-
-	// optimized
-	gettimeofday(&start, NULL);
-	blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
-	//blur_image_opt(input_image, output_image, temp, width, height, 20);
-	gettimeofday(&end, NULL);
-
-	seconds = end.tv_sec - start.tv_sec;
-  microseconds = end.tv_usec - start.tv_usec;
-  double total_microseconds_op = seconds * 1000000 + microseconds;
-	printf("Optimized Blur:   %2f\n", total_microseconds_op);
-
-	printf("Speedup: %2fx\n", total_microseconds_un / total_microseconds_op);
-	//============================ END TESTING ===============================
-
-	// DOES IT COMPILE AND RUN?
-	
-
+	test_blur_performance(input_image, output_image, temp, width, height, kernel_size);
 
   // Convert back to stb format
   unsigned char* output_data = create_output_array(output_image, width, height, channels);
