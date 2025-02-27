@@ -432,71 +432,71 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
 void test_blur_performance
 (Pixel_t** input_image, Pixel_t** output_image, Pixel_t** temp, int width, int height, int kernel_size)
 {
-    struct timeval start, end;
-    double seconds, microseconds, time_unopt = 0, time_opt = 0, time_simd = 0;
-    const int warmup_runs = 2;  // Number of warmup runs
-    const int test_runs = 5;    // Number of timed runs for averaging
+  struct timeval start, end;
+  double seconds, microseconds, time_unopt = 0, time_opt = 0, time_simd = 0;
+  const int warmup_runs = 2;
+  const int test_runs = 5;  // number of timed runs
 
-    // Warmup runs (no timing)
-    for (int i = 0; i < warmup_runs; i++) {
-        blur_image(input_image, output_image, width, height, kernel_size);
-        blur_image_opt(input_image, output_image, temp, width, height, kernel_size);
-        blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
-    }
+  // get that data in the cache
+  for(int i = 0; i < warmup_runs; i++){
+    blur_image(input_image, output_image, width, height, kernel_size);
+    blur_image_opt(input_image, output_image, temp, width, height, kernel_size);
+    blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
+  }
 
-		#ifdef UNOP
-    	// Timed runs for Unoptimized
-    	for (int i = 0; i < test_runs; i++) {
-    	    gettimeofday(&start, NULL);
-    	    blur_image(input_image, output_image, width, height, kernel_size);
-    	    gettimeofday(&end, NULL);
-    	    seconds = end.tv_sec - start.tv_sec;
-    	    microseconds = end.tv_usec - start.tv_usec;
-    	    time_unopt += seconds * 1000000 + microseconds;
-    	}
-    	time_unopt /= test_runs;
-		#endif
+	// ifdef blocks to get specific function results if desired
+	#ifdef UNOP
+  	// timed runs for naive version
+  	for(int i = 0; i < test_runs; i++){
+  	  gettimeofday(&start, NULL);
+  	  blur_image(input_image, output_image, width, height, kernel_size);
+  	  gettimeofday(&end, NULL);
+  	  seconds = end.tv_sec - start.tv_sec;
+  	  microseconds = end.tv_usec - start.tv_usec;
+  	  time_unopt += seconds * 1000000 + microseconds;
+  	}
+  	time_unopt /= test_runs;
+	#endif
 
-		#ifdef OP
-    	// Timed runs for Optimized (non-SIMD)
-    	for (int i = 0; i < test_runs; i++) {
-    	    gettimeofday(&start, NULL);
-    	    blur_image_opt(input_image, output_image, temp, width, height, kernel_size);
-    	    gettimeofday(&end, NULL);
-    	    seconds = end.tv_sec - start.tv_sec;
-    	    microseconds = end.tv_usec - start.tv_usec;
-    	    time_opt += seconds * 1000000 + microseconds;
-    	}
-    	time_opt /= test_runs;
-		#endif
+	#ifdef OP
+  	// timed runs for optimized version (non-SIMD)
+  	for(int i = 0; i < test_runs; i++){
+  	  gettimeofday(&start, NULL);
+  	  blur_image_opt(input_image, output_image, temp, width, height, kernel_size);
+  	  gettimeofday(&end, NULL);
+  	  seconds = end.tv_sec - start.tv_sec;
+  	  microseconds = end.tv_usec - start.tv_usec;
+  	  time_opt += seconds * 1000000 + microseconds;
+  	}
+  	time_opt /= test_runs;
+	#endif
 
-		#ifdef OP_SIMD
-    	// Timed runs for Optimized (SIMD)
-    	for (int i = 0; i < test_runs; i++) {
-    	    gettimeofday(&start, NULL);
-    	    blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
-    	    gettimeofday(&end, NULL);
-    	    seconds = end.tv_sec - start.tv_sec;
-    	    microseconds = end.tv_usec - start.tv_usec;
-    	    time_simd += seconds * 1000000 + microseconds;
-    	}
-    	time_simd /= test_runs;
-		#endif
+	#ifdef OP_SIMD
+  	// Timed runs for Optimized (SIMD)
+  	for(int i = 0; i < test_runs; i++){
+  	  gettimeofday(&start, NULL);
+  	  blur_image_opt_simd(input_image, output_image, temp, width, height, kernel_size);
+  	  gettimeofday(&end, NULL);
+  	  seconds = end.tv_sec - start.tv_sec;
+  	  microseconds = end.tv_usec - start.tv_usec;
+  	  time_simd += seconds * 1000000 + microseconds;
+  	}
+  	time_simd /= test_runs;
+	#endif
 
-    // Convert to milliseconds for readability
-    double time_unopt_ms = time_unopt / 1000.0;
-    double time_opt_ms = time_opt / 1000.0;
-    double time_simd_ms = time_simd / 1000.0;
-
-    // Print results in a cleaned-up table
-    printf("\n=== Blur Function Performance ===\n");
-    printf("+----------------------+---------------+------------+\n");
-    printf("| Version              | Time (ms)     | Speedup       |\n");
-    printf("+----------------------+---------------+------------+\n");
-    printf("| Unoptimized          | %11.2f | %11.2f |\n", time_unopt_ms, 1.0);
-    printf("| Optimized (non-SIMD) | %11.2f | %11.2f |\n", time_opt_ms, time_unopt / time_opt);
-    printf("| Optimized (SIMD)     | %11.2f | %11.2f |\n", time_simd_ms, time_unopt / time_simd);
-    printf("+----------------------+---------------+------------+\n");
+  // convert to milliseconds
+  double time_unopt_ms = time_unopt / 1000.0;
+  double time_opt_ms = time_opt / 1000.0;
+  double time_simd_ms = time_simd / 1000.0;
+	
+  printf("\n=== Blur Function Performance ===\n");
+  printf("+----------------------+---------------+------------+\n");
+  printf("| Version              | Time (ms)     | Speedup       |\n");
+  printf("+----------------------+---------------+------------+\n");
+  printf("| Unoptimized          | %11.2f | %11.2f |\n", time_unopt_ms, 1.0);
+  printf("| Optimized (non-SIMD) | %11.2f | %11.2f |\n", time_opt_ms, time_unopt / time_opt);
+  printf("| Optimized (SIMD)     | %11.2f | %11.2f |\n", time_simd_ms, time_unopt / time_simd);
+  printf("+----------------------+---------------+------------+\n");
 }
 
 int main(int argc, char** argv)
