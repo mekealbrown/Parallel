@@ -362,7 +362,7 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
           *(int*)&temp[bottom][x + 7]
         );
 
-				// subtract the r,g,b elements from the accumulators
+				// subtract the r,g,b elements from the accumulators3 * width * height * sizeof(Pixel_t)
         result_r = _mm256_sub_epi32(result_r, _mm256_and_si256(reg_bottom, _mm256_set1_epi32(0xFF)));
         result_g = _mm256_sub_epi32(result_g, _mm256_and_si256(_mm256_srli_epi32(reg_bottom, 8), _mm256_set1_epi32(0xFF)));
         result_b = _mm256_sub_epi32(result_b, _mm256_and_si256(_mm256_srli_epi32(reg_bottom, 16), _mm256_set1_epi32(0xFF)));
@@ -427,6 +427,211 @@ void blur_image_opt_simd(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int 
       }
   	}
 	}
+}
+
+void benchmark_cache_limit(int kernel_size)
+{
+  const int max_size = 8192;
+  const int runs = 5; 
+  const int warmup_runs = 2;
+
+  FILE *file = fopen("result.txt", "w"); // Open file for writing
+  if(!file){
+    printf("Error: Could not open result.txt for writing\n");
+    return;
+  }
+  const char *header = "=== Cache Limit Benchmark for blur_image_opt_simd ===\n"
+                       "+------------+---------------+---------------+---------------+\n"
+                       "| Size       | Time (ms)     | Memory (KB)   | Speedup       |\n"
+                       "+------------+---------------+---------------+---------------+\n";
+  fprintf(file, "%s", header);
+  double prev_time_ms = 0.0;
+  int prev_size = 0;
+  // Initial coarse steps up to 1024
+  for(int size = 64; size <= 1024; size *= 2){
+    Pixel_t** image = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+    Pixel_t** output = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+    Pixel_t** temp = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+
+    for(int i = 0; i < size; i++){
+      image[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+      output[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+      temp[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+    }
+
+    // dummy data
+    for(int y = 0; y < size; y++){
+      for(int x = 0; x < size; x++){
+        image[y][x].r = (unsigned char)x;
+        image[y][x].g = (unsigned char)y;
+        image[y][x].b = 0;
+        image[y][x].padding = 0;
+      }
+    }
+
+    // Warm-up runs
+    for(int i = 0; i < warmup_runs; i++){
+      blur_image_opt_simd(image, output, temp, size, size, kernel_size);
+    }
+
+    // Timed runs
+    struct timeval start, end;
+    double time_us = 0;
+    for(int i = 0; i < runs; i++){
+      gettimeofday(&start, NULL);
+      blur_image_opt_simd(image, output, temp, size, size, kernel_size);
+      gettimeofday(&end, NULL);
+      double seconds = end.tv_sec - start.tv_sec;
+      double microseconds = end.tv_usec - start.tv_usec;
+      time_us += seconds * 1000000 + microseconds;
+    }
+
+    double time_ms = (time_us / runs) / 1000.0;
+
+    long long memory_bytes = 3LL * size * size * sizeof(Pixel_t);
+    double memory_kb = memory_bytes / 1024.0;
+
+    double speedup = 0.0;
+    if(prev_size != 0){
+      double pixel_ratio = (double)(size * size) / (prev_size * prev_size);
+      speedup = time_ms / (prev_time_ms * pixel_ratio);
+    } else{
+      speedup = 1.0; // first entry, no comparison
+    }
+
+    char line[100];
+    snprintf(line, sizeof(line), "| %4dx%-4d | %11.2f | %11.0f | %11.2f |\n", 
+             size, size, time_ms, memory_kb, speedup);
+    fprintf(file, "%s", line);
+
+    prev_time_ms = time_ms;
+    prev_size = size;
+
+    for(int i = 0; i < size; i++){
+      free(image[i]);
+      free(output[i]);
+      free(temp[i]);
+    }
+    free(image);
+    free(output);
+    free(temp);
+  }
+
+  // Finer granularity between 1024 and 2048(right where cache limit should be hit)
+  for(int size = 1280; size <= 2048; size += 256){
+    Pixel_t** image = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+    Pixel_t** output = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+    Pixel_t** temp = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+		
+    for(int i = 0; i < size; i++){
+      image[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+      output[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+      temp[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+    }
+
+    for(int y = 0; y < size; y++){
+        for(int x = 0; x < size; x++){
+          image[y][x].r = (unsigned char)x;
+          image[y][x].g = (unsigned char)y;
+          image[y][x].b = 0;
+          image[y][x].padding = 0;
+        }
+    }
+    for(int i = 0; i < warmup_runs; i++){
+      blur_image_opt_simd(image, output, temp, size, size, kernel_size);
+    }
+
+    struct timeval start, end;
+    double time_us = 0;
+    for(int i = 0; i < runs; i++){
+      gettimeofday(&start, NULL);
+      blur_image_opt_simd(image, output, temp, size, size, kernel_size);
+      gettimeofday(&end, NULL);
+      double seconds = end.tv_sec - start.tv_sec;
+      double microseconds = end.tv_usec - start.tv_usec;
+      time_us += seconds * 1000000 + microseconds;
+    }
+
+    double time_ms = (time_us / runs) / 1000.0;
+    long long memory_bytes = 3LL * size * size * sizeof(Pixel_t);
+    double memory_kb = memory_bytes / 1024.0;
+    double pixel_ratio = (double)(size * size) / (prev_size * prev_size);
+    double speedup = time_ms / (prev_time_ms * pixel_ratio);
+    char line[100];
+    snprintf(line, sizeof(line), "| %4dx%-4d | %11.2f | %11.0f | %11.2f |\n", 
+             size, size, time_ms, memory_kb, speedup);
+    fprintf(file, "%s", line);
+    prev_time_ms = time_ms;
+    prev_size = size;
+    for(int i = 0; i < size; i++){
+      free(image[i]);
+      free(output[i]);
+      free(temp[i]);
+    }
+    free(image);
+    free(output);
+    free(temp);
+  }
+
+  // Coarse steps beyond 2048
+  for(int size = 4096; size <= max_size; size *= 2){
+      Pixel_t** image = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+      Pixel_t** output = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+      Pixel_t** temp = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
+
+      for(int i = 0; i < size; i++){
+        image[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+        output[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+        temp[i] = (Pixel_t*)malloc(size * sizeof(Pixel_t));
+      }
+
+      for(int y = 0; y < size; y++){
+          for(int x = 0; x < size; x++){
+            image[y][x].r = (unsigned char)x;
+            image[y][x].g = (unsigned char)y;
+            image[y][x].b = 0;
+            image[y][x].padding = 0;
+          }
+      }
+      for(int i = 0; i < warmup_runs; i++){
+        blur_image_opt_simd(image, output, temp, size, size, kernel_size);
+      }
+
+      struct timeval start, end;
+      double time_us = 0;
+      for(int i = 0; i < runs; i++){
+        gettimeofday(&start, NULL);
+        blur_image_opt_simd(image, output, temp, size, size, kernel_size);
+        gettimeofday(&end, NULL);
+        double seconds = end.tv_sec - start.tv_sec;
+        double microseconds = end.tv_usec - start.tv_usec;
+        time_us += seconds * 1000000 + microseconds;
+      }
+
+      double time_ms = (time_us / runs) / 1000.0;
+      long long memory_bytes = 3LL * size * size * sizeof(Pixel_t);
+      double memory_kb = memory_bytes / 1024.0;
+      double pixel_ratio = (double)(size * size) / (prev_size * prev_size);
+      double speedup = time_ms / (prev_time_ms * pixel_ratio);
+      char line[100];
+      snprintf(line, sizeof(line), "| %4dx%-4d | %11.2f | %11.0f | %11.2f |\n", 
+               size, size, time_ms, memory_kb, speedup);
+      fprintf(file, "%s", line);
+      prev_time_ms = time_ms;
+      prev_size = size;
+      for (int i = 0; i < size; i++) {
+          free(image[i]);
+          free(output[i]);
+          free(temp[i]);
+      }
+      free(image);
+      free(output);
+      free(temp);
+  }
+
+  const char *footer = "+------------+---------------+---------------+---------------+\n";
+  fprintf(file, "%s", footer);
+  fclose(file);
 }
 
 void test_blur_performance
@@ -535,6 +740,8 @@ int main(int argc, char** argv)
 
 
 	test_blur_performance(input_image, output_image, temp, width, height, kernel_size);
+
+	benchmark_cache_limit(kernel_size);
 
   // Convert back to stb format
   unsigned char* output_data = create_output_array(output_image, width, height, channels);
