@@ -37,7 +37,7 @@ target_link_libraries(blur_all PRIVATE ${COMMON_LIBS})
 
 # Custom clean target (optional, CMake already handles most cleanup)
 add_custom_target(clean_extra
-    COMMAND ${CMAKE_COMMAND} -E rm -f blur_* images/output.* result.txt *.png
+    COMMAND ${CMAKE_COMMAND} -E rm -f blur_* ../images/output.* result.txt *.png
     COMMAND ${CMAKE_COMMAND} -E echo "Cleaned extra files"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Cleaning extra files not handled by CMake"
