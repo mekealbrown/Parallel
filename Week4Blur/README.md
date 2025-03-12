@@ -28,6 +28,8 @@ A high-performance Gaussian blur implementation in C, leveraging AVX2 SIMD instr
 ### Prerequisites
 
 - **C Compiler**: GCC or any compiler with AVX2 support.
+- **CMake**: Ensure you have CMake installed on your system
+- **OpenMP**: Ensure you have OpenMP installed on your system 
 - **CPU**: Must support AVX2 (e.g., Intel Haswell or later, AMD Zen or later).
 - **STB Image Libraries**: `stb_image.h` and `stb_image_write.h` are included in the project.
 
