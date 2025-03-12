@@ -15,7 +15,7 @@ typedef struct {
     unsigned char r, g, b, padding; // ensures 4-byte alignment
 } Pixel_t;
 
-
+// construct 2D Pixel_t array
 Pixel_t** create_Pixel_array(unsigned char* data, int width, int height, int channels)
 {
   Pixel_t** image = (Pixel_t**)malloc(height * sizeof(Pixel_t*));
@@ -31,6 +31,7 @@ Pixel_t** create_Pixel_array(unsigned char* data, int width, int height, int cha
   return image;
 }
 
+// flatten out 2D array
 unsigned char* create_output_array(Pixel_t** image, int width, int height, int channels)
 {
   unsigned char* output = (unsigned char*)malloc(width * height * channels);
@@ -45,7 +46,7 @@ unsigned char* create_output_array(Pixel_t** image, int width, int height, int c
   return output;
 }
 
-// w.o.w... 4 nested for loops
+// Naive box blur
 void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int kernel_size)
 {
   int radius = kernel_size / 2;
@@ -76,6 +77,7 @@ void blur_image(Pixel_t** image, Pixel_t** output, int width, int height, int ke
   }
 }
 
+// Optimized box blur. Seperable sliding window
 void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width, int height, int kernel_size)
 {
   int radius = kernel_size / 2;
@@ -160,11 +162,15 @@ void blur_image_opt(Pixel_t** image, Pixel_t** output, Pixel_t** temp, int width
 }
 
 /*
+	Optimized box blur. Seperable sliding window with SIMD
+
+	How it works
 	1. Initialize r,g,b accumulators. Holds sums for each window r,g,b elements
 	2. Compute inital sum -- pixels 0 to kernel_size-1
 	3. store average for window
 	4. "slide window"
 	5. subtract pixel just outside the left side of the window
+	6. add pixel just outside the right side of the window
 
 
 	Window:
@@ -517,7 +523,7 @@ void benchmark_cache_limit(int kernel_size)
     free(temp);
   }
 
-  // Finer granularity between 1024 and 2048(right where cache limit should be hit)
+  // Finer granularity between 1024 and 2048(right where cache limit should be hit FOR MY CPU - 32mb L3)
   for(int size = 1280; size <= 2048; size += 256){
     Pixel_t** image = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
     Pixel_t** output = (Pixel_t**)malloc(size * sizeof(Pixel_t*));
