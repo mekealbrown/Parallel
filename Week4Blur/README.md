@@ -25,19 +25,19 @@
 
 ###Build
 bash
-make blur_
-
-	This builds with every blur function. Additional targets can be found
-	in the Makefile for testing purposes.
+mkdir build
+cd build
+cmake ..
+make
 
 
 Usage
 bash
-./blur_ <input_image> <output_image> <kernel_size>
+./blur_all <input_image> <output_image> <kernel_size>
 
 Example:
 bash
-./blur_ input.png output.png 10
+./blur_all ../images/input.png ../images/output.png 10
 
     <input_image>: Path to your image (PNG, JPG, BMP).
     <output_image>: Output path (same formats).
@@ -70,7 +70,7 @@ Code Breakdown
     blur_image: Naive baseline—4 loops, O(kernel²) per pixel.
     blur_image_opt: Separable two-pass with sliding window, O(kernel) per pixel.
     blur_image_opt_simd: AVX2-accelerated version, 8 pixels/cycle, same complexity but vectorized.
-    benchmark_cache_limit: Profiles cache effects across sizes.
+    benchmark_cache_limit: Looks for slowdowns as we approach cache size limit and move to RAM.
     test_blur_performance: Times all three versions.
 
 Key optimization:

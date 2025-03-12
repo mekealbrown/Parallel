@@ -29,7 +29,7 @@ def parse_results(file_path):
     
     return sizes, times, memories, speedups
 
-# Path to your result.txt file
+# Path to result.txt file
 file_path = "result.txt"
 
 # Parse the data
