@@ -126,8 +126,11 @@ int main(int argc, char** argv)
 		free(A);
 		free(C); 
 	}
-	free(B); free(sendcounts); free(sendcounts_c);
-	free(displs); free(displs_c);
+	free(B); 
+	free(sendcounts); free(sendcounts_c);
+	free(displs); free(displs_c); 
+	free(local_A); free(local_C);
+	
 	MPI_Finalize();
 
 	return 0;
