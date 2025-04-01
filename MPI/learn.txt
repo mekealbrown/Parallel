@@ -1,3 +1,0 @@
-# To compile/run
-1. mpicc -o <name> <filename>
-2. mpirun -np 4 ./hello_mpi  (-np 4 specifies 4 process)
